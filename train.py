@@ -53,8 +53,11 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 step, t0 = 0, time.time()
 while time.time() - t0 < time_budget:
     x, y = get_batch()
-    logits = model(x)
-    loss = F.cross_entropy(logits.flatten(0, 1), y.flatten())
+    # Mixed precision: matmuls run in bf16 (fp32's exponent range, so no loss scaling needed),
+    # while the weights, gradients and AdamW state stay in fp32.
+    with torch.autocast(device_type=device, dtype=torch.bfloat16):
+        logits = model(x)
+    loss = F.cross_entropy(logits.float().flatten(0, 1), y.flatten())
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
