@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as F
 
 from model import GPT, GPTConfig, save_model
-from tokenizer import load_tokenizer
+from tokenizer import train_tokenizer
 
 # ---- config (override any of these from the command line with key=value) ----
 time_budget = 300.0  # seconds of training
@@ -21,6 +21,8 @@ n_embd = 256
 block_size = 256
 batch_size = 64
 learning_rate = 6e-4
+vocab_size = 1024  # BPE: 256 bytes + 767 merges + BOS
+tokenizer_bytes = 16_000_000  # how much of train.txt the tokenizer learns its merges from
 seed = 1337
 out_dir = "out"
 for arg in sys.argv[1:]:
@@ -33,9 +35,19 @@ torch.manual_seed(seed)
 np.random.seed(seed)
 os.makedirs(out_dir, exist_ok=True)
 
-tok = load_tokenizer(out_dir)
 with open("data/train.txt", "rb") as f:
-    data = tok.encode(f.read())
+    text = f.read()
+# Learning the tokenizer is part of training, so its time comes out of the budget. (Reading and encoding the
+# data stays outside it, as in the byte-level baseline.)
+t_tok = time.time()
+tok = train_tokenizer(text[:tokenizer_bytes], vocab_size)
+tok.save(out_dir)
+time_budget -= time.time() - t_tok
+t_enc = time.time()
+data = tok.encode(text)
+del text
+print(f"tokenizer: {tok.vocab_size} tokens learned in {t_enc - t_tok:.1f}s | "
+      f"{len(data):,} tokens encoded in {time.time() - t_enc:.1f}s")
 
 
 def get_batch():
